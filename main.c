@@ -276,6 +276,12 @@ int main(int argc, char **argv)
                 RenegadeLaunch(path);
                 return 0;
             }
+        } else if (strcmp(argv[i], "/register") == 0) {
+            RenegadeRegister();
+            return 0;
+        } else if (strcmp(argv[i], "/unregister") == 0) {
+            RenegadeUnregister();
+            return 0;
         }
     }
 
