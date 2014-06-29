@@ -120,14 +120,22 @@ void RenegadeSetMulti(BOOL enabled)
 
 const char *RenegadeGetNickname()
 {
+    static char buf[512];
     const char *ret = GetKeyString(HKEY_CURRENT_USER, "Software\\RenLauncher", "Nickname");
-    return ret ? ret : "";
+    memset(buf, 0, sizeof buf);
+    if (ret)
+        strncpy(buf, ret, sizeof(buf) - 1);
+    return buf;
 }
 
 const char *RenegadeGetServer()
 {
+    static char buf[512];
     const char *ret = GetKeyString(HKEY_CURRENT_USER, "Software\\RenLauncher", "Server");
-    return ret ? ret : "";
+    memset(buf, 0, sizeof buf);
+    if (ret)
+        strncpy(buf, ret, sizeof(buf) - 1);
+    return buf;
 }
 
 void RenegadeSetNickname(const char *nickname)
@@ -137,6 +145,14 @@ void RenegadeSetNickname(const char *nickname)
 
 void RenegadeSetServer(const char *server)
 {
+    if (strlen(server) > 256)
+        return;
+
+    // make sure the address is safe, sort of
+    for (int i = 0; i < strlen(server); i++)
+        if (isblank(server[i]) || iscntrl(server[i]) || isspace(server[i]))
+            return;
+
     SetKeyString(HKEY_CURRENT_USER, "Software\\RenLauncher", "Server", server);
 }
 
@@ -192,15 +208,13 @@ INT_PTR CALLBACK DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     EndDialog(hwnd, 0);
                     break;
                 case REGISTER:
-                    if (RenegadeRegister())
-                    {
+                    if (RenegadeRegister()) {
                         ShowWindow(GetDlgItem(hwnd, REGISTER), SW_HIDE);
                         ShowWindow(GetDlgItem(hwnd, UNREGISTER), SW_SHOW);
                     }
                     break;
                 case UNREGISTER:
-                    if (RenegadeUnregister())
-                    {
+                    if (RenegadeUnregister()) {
                         ShowWindow(GetDlgItem(hwnd, UNREGISTER), SW_HIDE);
                         ShowWindow(GetDlgItem(hwnd, REGISTER), SW_SHOW);
                     }
@@ -217,18 +231,56 @@ INT_PTR CALLBACK DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return FALSE;
 }
 
-int start()
+void RenegadeLaunch(const char *path)
 {
-    // check that game.exe exists in current directory
+    char buf[MAX_PATH];
+    const char *nickname = RenegadeGetNickname();
+    const char *server = RenegadeGetServer();
+    STARTUPINFO sInfo;
+    PROCESS_INFORMATION pInfo;
 
-    // check if command line has address & complain if no nickname set?
+    if (strlen(server) == 0 || strlen(nickname) == 0)
+        return;
 
-    // if has address, remember to save the last server!
+    sprintf(buf, "\"%s\" +connect %s +netplayername \"%s\" %s", path, server, nickname, RenegadeGetMulti() ? "+multi" : "");
+
+    ZeroMemory(&sInfo, sizeof sInfo);
+    sInfo.cb = sizeof sInfo;
+    ZeroMemory(&pInfo, sizeof pInfo);
+
+    if (CreateProcess(NULL, buf, NULL, NULL, TRUE, 0, NULL, NULL, &sInfo, &pInfo) == 0) {
+        char msg[MAX_PATH * 2];
+        sprintf(msg, "Failed to run %s", buf);
+        MessageBox(NULL, msg, "RenLauncher - Error", MB_OK|MB_ICONERROR);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    char path[MAX_PATH];
+    GetModuleFileName(NULL, path, sizeof path);
+    char *last = strrchr(path, '\\');
+    if (last) *last = '\0';
+    strcat(last, "\\game.exe");
+
+    if (GetFileAttributes(path) == INVALID_FILE_ATTRIBUTES) {
+        MessageBox(NULL, "RenLauncher needs to be in the same directory as your Renegade game.exe, please move this executable to your game folder and try again.", "RenLauncher - Error", MB_OK|MB_ICONSTOP);
+        return 1;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "renegade://", 11) == 0) {
+            RenegadeSetServer(argv[i] + 11);
+
+            if (strlen(RenegadeGetNickname()) > 0) {
+                RenegadeLaunch(path);
+                return 0;
+            }
+        }
+    }
 
     if (DialogBox(NULL, MAKEINTRESOURCE(IDD_RENLAUNCHER), NULL, DialogProc))
-    {
-        // launch
-    }
+        RenegadeLaunch(path);
 
     return 0;
 }
